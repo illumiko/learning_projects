@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sync"
 )
 
 const (
@@ -34,42 +33,55 @@ type comic_json struct {
 
 var comic_json_list = []comic_json{}
 
+func fileExists(fileName string) bool {
+	_, err := os.Stat(fname)
+	return errors.Is(err, os.ErrNotExist)
+}
+
+func search(title string) (data string) {
+
+	for _, v := range comic_json_list {
+		if v.Title == title {
+			data = v.Transcript
+		}
+
+	}
+	return
+}
+
+func parseOsArg(arg []string) (s string) {
+	for _, v := range arg {
+		s += v + " "
+	}
+	return
+}
+
 func main() {
 
-	if _, err := os.Stat(fname); errors.Is(err, os.ErrNotExist) {
-		var wg sync.WaitGroup
-
-		wg.Add(no_of_comic)
+	if fileExists(fname) {
 		for i := 0; i < no_of_comic; i++ {
-			go func(i int) {
-				url := fmt.Sprint(url_base, i, url_suffix)
+			url := fmt.Sprint(url_base, i, url_suffix)
 
-				resp, err := http.Get(url)
+			resp, err := http.Get(url)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			if resp.StatusCode > 299 {
+				fmt.Printf("%v Comic not found Status %v\n", i, resp.Status)
+			} else {
+				data, err := ioutil.ReadAll(resp.Body)
 				if err != nil {
 					log.Fatal(err)
 				}
-
-				if resp.StatusCode > 299 {
-					fmt.Printf("%v Comic not found Status %v\n", i, resp.Status)
-					wg.Done()
-				} else {
-					data, err := ioutil.ReadAll(resp.Body)
-					if err != nil {
-						log.Fatal(err)
-					}
-					unmarshalled_data := &comic_json{}
-					err = json.Unmarshal(data, unmarshalled_data)
-					if err != nil {
-						log.Fatal(err)
-					}
-					comic_json_list = append(comic_json_list, *unmarshalled_data)
-					defer wg.Done()
+				unmarshalled_data := &comic_json{}
+				err = json.Unmarshal(data, unmarshalled_data)
+				if err != nil {
+					log.Fatal(err)
 				}
-
-			}(i)
-
+				comic_json_list = append(comic_json_list, *unmarshalled_data)
+			}
 		}
-		wg.Wait()
 		fmt.Println("***Done Downloading***")
 
 		file, err := os.Create(fname)
@@ -81,15 +93,16 @@ func main() {
 
 		enc := json.NewEncoder(file)
 		enc.Encode(comic_json_list)
-
-		// file.Write([]byte("["))
-		// for _, v := range comic_json_list {
-		// 	file.Write(v)
-		// 	file.Write([]byte(","))
-		// }
-		// file.Write([]byte("]"))
 	} else {
 		fmt.Println("Data already exists at", fname)
+
+		file, err := os.Open(fname)
+		if err != nil {
+			log.Fatal(err)
+		}
+		json.NewDecoder(file).Decode(&comic_json_list)
+
+		fmt.Println(search(parseOsArg(os.Args[1:])))
 	}
 
 }
